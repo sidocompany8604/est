@@ -1,7 +1,7 @@
 /* 시도디자인 견적 프로그램 v3 — 실장 페이지(APP_MODE="staff")와 관리자 페이지(APP_MODE="admin")가 같은 코드를 씁니다.
    데이터: data.js (window.SIDO_DATA). 실장용 data.js에는 원가가 없고 판매단가(price)와 마진율(m)만 있습니다. */
 "use strict";
-const APP_VER = "2026-11-21.82";                       // 이 프로그램의 판. app.js 를 고쳐 올릴 때마다 바꾼다 — 서버가 이 줄을 읽어(/api/ping) 열려 있는 화면에 ‘새로 바뀌었습니다 · 눌러서 새로 고침’을 띄운다
+const APP_VER = "2026-11-21.83";                       // 이 프로그램의 판. app.js 를 고쳐 올릴 때마다 바꾼다 — 서버가 이 줄을 읽어(/api/ping) 열려 있는 화면에 ‘새로 바뀌었습니다 · 눌러서 새로 고침’을 띄운다
 const MODE = window.APP_MODE === "admin" ? "admin" : "staff";
 const $ = s => document.querySelector(s);
 const deep = o => JSON.parse(JSON.stringify(o));
@@ -3547,7 +3547,7 @@ function capSave(name, data, okMsg) { if (!DL_CAP) return false;
   return true }
 function printFile() {                                // 게시 주소: 인쇄 창을 띄울 수 없으므로, 견적서를 인쇄용 파일로 받아서 연 뒤 ‘PDF로 저장’
   let css = ""; for (const sh of document.styleSheets) { try { for (const r of sh.cssRules) css += r.cssText + "\n" } catch (e) { } }
-  const html = `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>견적서 ${esc(E.info.client || "")}</title><style>${css}\nbody{background:#fff!important;margin:0;padding:12px}.dbtn,.dadd,.docbar{display:none!important}</style></head><body><section class="view" id="view-doc"><div id="docView">${$("#docView").innerHTML}</div></section><script>window.addEventListener("load",function(){setTimeout(function(){window.print()},400)})<\/script></body></html>`;
+  const html = `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>견적서 ${esc(E.info.client || "")}</title><style>${css}\nbody{background:#fff!important;margin:0;padding:12px}.dbtn,.dadd,.docbar{display:none!important}@media print{body{padding:0!important}@page{margin:10mm;@top-left{content:""}@bottom-right{content:counter(page) " / " counter(pages);font-size:9px;color:#888}}}</style></head><body><main><section class="view" id="view-doc"><div id="docView">${$("#docView").innerHTML}</div></section></main><script>window.addEventListener("load",function(){setTimeout(function(){window.print()},400)})<\/script></body></html>`;
   return capSave(`견적서_${(E.info.client || "고객").replace(/[\\/:*?"<>|]/g, "")}_${E.info.kind}v${E.info.ver}_인쇄용.html`, html, "인쇄용 파일을 저장했습니다. 그 파일을 열면 인쇄 창이 뜹니다. ‘PDF로 저장’을 고르세요.") }
 function download(name, text, type) { if (capSave(name, text)) return; const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove() }, 500) }
 async function copyTsv() {
@@ -3623,16 +3623,19 @@ function profitItems() { return String((D.doc || {}).profitDesc || "").split("/"
 function profitBox() { const ps = profitItems(); if (!ps.length) return "";
   return `<div class="box profitbox"><h3>기업이윤에 들어 있는 것</h3><p class="note" style="margin:0 0 6px">기업이윤은 공사를 처음부터 끝까지 책임지고 관리하는 데 드는 비용입니다. 자재비·인건비와 따로, 아래 일을 맡는 값입니다.</p><ul>${ps.map(([n, t]) => `<li><b>${esc(n)}</b>${t ? ` — ${esc(t)}` : ""}</li>`).join("")}</ul></div>` }
 function docOptsDraw() {                              // 상세견적서 화면 위: 공사 기간 · 유효기간을 고르는 칸 (메모 칸 위)
-  const memo = $("#memo"), card = memo && memo.closest(".card"); if (!card) return;
-  let box = $("#docOpts"); if (!box) { box = document.createElement("div"); box.id = "docOpts"; box.className = "card"; box.style.cssText = "max-width:900px;margin:0 auto 14px"; card.parentNode.insertBefore(box, card) }
+  const dv = $("#docView"); if (!dv) return;          // (v83) 메모 칸은 견적서 뒤로 갔다 → 이 칸은 늘 견적서 바로 위에 둔다
+  let box = $("#docOpts"); if (!box) { box = document.createElement("div"); box.id = "docOpts"; box.className = "card"; box.style.cssText = "max-width:900px;margin:0 auto 14px"; dv.parentNode.insertBefore(box, dv) }
   const d = String(E.info.dur ?? "").trim(), num = /^\d+(\.\d+)?$/.test(d), custom = !!d && !(num && DUR_PICK.includes(+d)), w = durAuto(), vt = validTo(), own = !!E.info.validTo && E.info.validTo !== addMonth(E.info.date, 1);
   const chip = (v, t) => `<button type="button" data-dur="${v}" aria-pressed="${v === "*" ? custom || docOptsDraw.open === true : !custom && !docOptsDraw.open && d === v}">${t}</button>`;
   box.innerHTML = `<div class="bd" style="display:flex;flex-direction:column;gap:12px">
     <div><b>예상 공사 기간</b> <span class="note">고르면 견적서 첫 장에 그대로 나갑니다 · 지금: <b>${esc(durTxt())}</b></span>
       <div class="cmpch" style="margin-top:6px">${chip("", `자동 · 약 ${w}주`)}${DUR_PICK.map(n => chip(String(n), n + "주")).join("")}${chip("*", "직접 입력")}</div>
       ${custom || docOptsDraw.open ? `<input id="durIn" value="${esc(custom ? d : "")}" placeholder="예: 약 40일 · 12월 초 ~ 1월 중순 · 6.5" style="margin-top:6px;display:block;width:min(420px,100%)"><div class="note">숫자만 적으면 ‘약 ○주 (실측 후 확정)’, 글로 적으면 적은 그대로 나갑니다.</div>` : ""}</div>
-    <div><b>견적 유효기간</b> <input type="date" id="validIn" value="${esc(vt)}" style="margin-left:6px;width:auto;display:inline-block;min-width:170px"> <span class="note">까지 · 기본은 견적일(${esc(E.info.date || "")})에서 한 달</span>${own ? ` <button type="button" class="btn ghost sm" data-validreset>↺ 한 달로</button>` : ""}</div></div>`;
+    <div><b>견적 유효기간</b> <input type="date" id="validIn" value="${esc(vt)}" style="margin-left:6px;width:auto;display:inline-block;min-width:170px"> <span class="note">까지 · 기본은 견적일(${esc(E.info.date || "")})에서 한 달</span>${own ? ` <button type="button" class="btn ghost sm" data-validreset>↺ 한 달로</button>` : ""}</div>
+    <div><b>견적서 메모</b> <span class="note">${E.memo ? "적어 둔 메모가 있습니다 · " : ""}견적서 맨 뒤 ‘특기사항’에 나갑니다. 적는 칸은 이 화면 맨 아래에 있습니다.</span> <button type="button" class="btn ghost sm" data-memogo>메모 적으러 가기 ↓</button></div>
+    <div class="note">인쇄하면 견적서만 찍힙니다(이 칸 · 단추 · 인터넷 주소 · 날짜는 찍히지 않고, 쪽 번호만 오른쪽 아래에 작게 나옵니다).</div></div>`;
 }
+document.addEventListener("click", ev0 => { const g = ev0.target.closest && ev0.target.closest("[data-memogo]"); if (!g) return; const m = $("#memo"); if (!m) return; (m.closest(".card") || m).scrollIntoView({ block: "center", behavior: "smooth" }); setTimeout(() => { try { m.focus({ preventScroll: true }) } catch (e) { } }, 350) });
 document.addEventListener("click", ev0 => { const t = ev0.target, b = t.closest && t.closest("#docOpts [data-dur]"), vr = t.closest && t.closest("#docOpts [data-validreset]"); if (!b && !vr) return;
   if (vr) { delete E.info.validTo; save(); renderDoc(); return }
   if (b.dataset.dur === "*") { docOptsDraw.open = true; docOptsDraw(); const i = $("#durIn"); if (i) i.focus(); return }
@@ -3702,6 +3705,15 @@ function renderDoc() {
   if (!renderDoc.keep) docOptsDraw();
 }
 $("#memo") && ($("#memo").oninput = ev0 => { E.memo = ev0.target.value; save(); clearTimeout(renderDoc.mt); renderDoc.mt = setTimeout(() => { renderDoc.keep = true; try { renderDoc() } finally { renderDoc.keep = false } }, 500) });   // (v74) 적는 대로 아래 견적서 ‘메모’ 칸에 보인다
+(() => { const m = $("#memo"), card = m && m.closest(".card"), dv = $("#docView"); if (!card || !dv) return;   // (v83) 메모 적는 칸은 견적서 뒤(화면 맨 아래)로 — 메모가 나가는 마지막 장 ‘특기사항’ 바로 아래. 사용자: “메모할 수 있는 공간은 맨 앞에 있으면 안 되지”. 이 칸 자체는 인쇄되지 않는다
+  card.id = "memoCard"; card.style.margin = "14px auto"; dv.parentNode.insertBefore(card, dv.nextSibling);
+  const lab = m.closest("label"); if (lab && lab.firstChild && lab.firstChild.nodeType === 3) lab.firstChild.nodeValue = "견적서 메모 — 여기에 적으면 바로 위 견적서 마지막 장 ‘특기사항’의 메모에 나갑니다 (이 칸은 인쇄되지 않습니다)" })();
+/* (v83) 인쇄: 어느 화면에서 인쇄(Ctrl+P)를 눌러도 지금 견적서가 찍히고, ‘PDF로 저장’할 때 파일 이름이 ‘견적서_고객_종류v판’이 된다(끝나면 창 제목을 되돌린다).
+   크롬이 붙이는 날짜 · 창 제목 · 주소는 아래 인쇄 CSS 의 @page 여백 상자로 없앤다(위쪽 상자를 비워 두고 아래쪽에 쪽 번호만 — 크롬 131부터. 2026-11-21 크롬 157 로 PDF 를 뽑아 확인). */
+const PRN = { t: null, de: false };
+function printName() { const i = E.info || {}; return `견적서_${String(i.client || "고객").replace(/[\\/:*?"<>|]/g, "")}_${i.kind || ""}v${i.ver || 1}` }
+window.addEventListener("beforeprint", () => { try { if (PRN.t === null) { PRN.t = document.title; PRN.de = DOC_EDIT } DOC_EDIT = false; renderDoc(); document.title = printName() } catch (e) { } });
+window.addEventListener("afterprint", () => { try { if (PRN.t !== null) { document.title = PRN.t; PRN.t = null; if (PRN.de) { DOC_EDIT = true; renderDoc() } } } catch (e) { } });
 
 /* ---------- 도면: 공정마다 한 장씩 위치를 표시하고, 마지막에 모아 본다 ----------
    · 기본은 평형·방/욕실/발코니 수·실측 치수로 그리는 약식 도면. 실제 아파트 도면 사진을 올리면 그 위에 표시한다.
@@ -3734,7 +3746,9 @@ document.head.insertAdjacentHTML("beforeend", `<style>
 .planall{padding:4px 14px 10px}.planall h3{font-size:13px;margin:8px 0 4px}
 #docView .kh td{background:#f7f8f6;font-weight:700;font-size:12px;color:#444}#docView .mk{display:inline-block;font-size:10.5px;font-weight:700;color:#fff;background:#2d6a58;border-radius:99px;padding:0 6px;margin-left:2px}
 #docView .plangrid figure{border-color:#b9beb8}#docView .plangrid .note{font-size:10.5px}
-@media print{#docView .plangrid{grid-template-columns:repeat(3,1fr)}}
+@media print{#docView .plangrid{grid-template-columns:repeat(3,1fr)}
+html,body{background:#fff!important}body>*:not(main){display:none!important}#view-doc>*:not(#docView){display:none!important}
+@page{margin:10mm;@top-left{content:""}@bottom-right{content:counter(page) " / " counter(pages);font-size:9px;color:#888}}}
 </style>`);
 const lineLabel = l => l.label || aliasOf(l.items[Math.min(lnState(l).alt || 0, l.items.length - 1)]);
 const stepItems = step => ((D.stepLines || {})[step] || []).filter(l => lnState(l).on);
