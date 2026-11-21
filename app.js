@@ -1,7 +1,7 @@
 /* 시도디자인 견적 프로그램 v3 — 실장 페이지(APP_MODE="staff")와 관리자 페이지(APP_MODE="admin")가 같은 코드를 씁니다.
    데이터: data.js (window.SIDO_DATA). 실장용 data.js에는 원가가 없고 판매단가(price)와 마진율(m)만 있습니다. */
 "use strict";
-const APP_VER = "2026-11-21.83";                       // 이 프로그램의 판. app.js 를 고쳐 올릴 때마다 바꾼다 — 서버가 이 줄을 읽어(/api/ping) 열려 있는 화면에 ‘새로 바뀌었습니다 · 눌러서 새로 고침’을 띄운다
+const APP_VER = "2026-11-21.84";                       // 이 프로그램의 판. app.js 를 고쳐 올릴 때마다 바꾼다 — 서버가 이 줄을 읽어(/api/ping) 열려 있는 화면에 ‘새로 바뀌었습니다 · 눌러서 새로 고침’을 띄운다
 const MODE = window.APP_MODE === "admin" ? "admin" : "staff";
 const $ = s => document.querySelector(s);
 const deep = o => JSON.parse(JSON.stringify(o));
@@ -17,6 +17,11 @@ function frontSess(v) {                               // 이 기기의 로그인
   try { if (v === undefined) { const s = sessionStorage.getItem(K) || localStorage.getItem(K); return s ? JSON.parse(s) : null }
     sessionStorage.removeItem(K); localStorage.removeItem(K); if (v) (v.keep ? localStorage : sessionStorage).setItem(K, JSON.stringify(v)) } catch (e) { }
   return v || null }
+/* (v84) 실장의 ‘전용 주소’(항상 열리는 주소 뒤 #u=코드): 회사 컴퓨터가 꺼져 있어도 처음 쓰는 기기에서 로그인되게 하는 코드(무작위 16자).
+   주소로 열면 코드를 이 창에만 적어 두고(sessionStorage) 주소 칸에서는 바로 지운다. 로그인하면 그 기기의 로그인 정보(frontSess 의 off)에 함께 둔다 — 로그아웃하면 같이 지워진다. */
+const offNorm = v => { v = String(v || "").trim(); const m = v.match(/[#&?]u=([A-Za-z0-9\-]+)/); if (m) v = m[1]; else if (/[:/.]/.test(v)) return ""; return v.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 40) };
+function offCode(v) { const K = "sido_front_u"; try { if (v !== undefined) { if (v) sessionStorage.setItem(K, v); else sessionStorage.removeItem(K); return v || "" } return (frontSess() || {}).off || sessionStorage.getItem(K) || "" } catch (e) { return "" } }
+if (FRONT) { try { const m = location.hash.match(/[#&]u=([A-Za-z0-9\-]{8,60})/); if (m) { offCode(offNorm(m[1])); history.replaceState(null, "", location.pathname + location.search) } } catch (e) { } }
 const store = {
   get(k, d) { try { const v = localStorage.getItem(NS + k); return v ? JSON.parse(v) : d } catch (e) { return d } },
   set(k, v) { try { localStorage.setItem(NS + k, JSON.stringify(v)); return true } catch (e) { return false } },
@@ -2299,6 +2304,7 @@ function helpBasicMake(py, guessed, m) {
 }
 function helpBig(q) {                                 // 위 세 가지 가운데 맞는 것 (없으면 null)
   const qs = q.replace(/\s+/g, "").replace(/[?？!.~]+$/, ""); if (qs.length > 34 || /\d\s*[*xX×]\s*\d/.test(q)) return null;
+  if (/기기|컴퓨터|휴대폰|핸드폰|로그인|로그아웃|전용주소|비밀번호|아이디/.test(qs)) return null;   // (v84) 기기 · 로그인을 묻는 말(‘집 컴퓨터에서 처음 쓰려면’)은 견적 쓰는 순서 안내가 아니라 저장된 답으로
   const tr = KB_TRADE.filter(x => x[1].test(q)).length;
   if (HELP_BASEQ.test(qs) && !/얼마|비용|금액|가격|단가|기간|며칠|몇일|차이|뭐야$|순서|부터|먼저|추천|좋/.test(qs) && (!tr || (tr === 1 && /기본/.test(qs)))) return helpBaseSay(q);
   if (tr === 1 && qs.length <= 20 && /(얼마야|얼마예요|얼마에요|얼마임|얼마지|얼마나와|얼마들어|얼마해|얼마받|가격|비용|금액|단가)/.test(qs) && !/높이|두께|간격|깊이|폭|크기|치수|수량|몇|기간|로스|길이|넓이|사이즈|규격|용량|걸려|왜|이유|차이|비싸|싸|추가|원가|마진|평당|롤|박스/.test(qs)) { const sk = KB_TRADE.find(x => x[1].test(q))[0], i = STEPS().findIndex(s => s.key === sk); if (i > 0) return '<div class="hk">금액은 제가 말로 하지 않습니다. ‘' + esc(STEPS()[i].label) + '’ 단계에서 공사를 체크하면 줄마다 금액이 바로 나옵니다.</div>' + helpRow("바뀌는 것", "자재 등급 · 수량 · 현장 상태에 따라 달라집니다. 자재와 수량을 바꾸면 금액도 바로 바뀝니다.") + '<div class="hm"><button type="button" data-goto="' + i + '">그 단계 보기</button><button type="button" class="lk" data-helpsay="견적서 보여줘">상세견적서</button></div>' }
@@ -5174,61 +5180,88 @@ setInterval(() => { if (document.visibilityState !== "hidden" && Date.now() - (k
    “실장들의 각 개인 아이디에서 자기가 사용했던 혹은 작성, 저장했던 견적서는 계속해서 보이는 방식으로”.
    · 로그인·저장은 회사 서버(FRONT.api = 밖에서 들어오는 https 주소)에 건다. 이 화면 안에서 아이디·비밀번호를 받는다(frontLogin).
    · 회사 컴퓨터가 꺼져 있으면: 전에 로그인한 기기는 그대로 쓰고, 회사에 보관해 둔 내 견적의 ‘잠근 사본’을 깃허브에서 받아 이 기기의 열쇠로 풀어 보여 준다(mirLoad · mirGet).
-     처음인 기기는 로그인 없이 쓴다(임시) — 쓴 견적은 이 기기에 남았다가, 켜진 뒤 로그인하면 내 견적으로 올라간다(pendSync 가 주인 없는 ‘올릴 것’도 올린다).
+     (v84) 로그인해야만 쓴다 — 사용자(2026-11-21): “처음 쓰는 기기에서 견적서 작성을 하려면 똑같이 로그인해야 … 한마디로 로그인을 해야 프로그램을 쓸 수 있는 거야”.
+     처음인 기기도 꺼져 있을 때 로그인할 수 있게, 실장마다 ‘전용 주소’(#u=코드)를 주고 그 코드 + 아이디 + 비밀번호로 잠근 로그인 꾸러미를 보관본 옆(o/…)에 둔다(frontOffLogin · 서버 15판).
+     꺼져 있는 동안 아이디가 사용 중지되거나 비밀번호가 바뀌었는지는 보관본 옆의 ok.json(지금 쓰는 실장들의 폴더 목록)으로 알아본다(mirLoad).
+     (v81~v83에는 처음인 기기가 로그인 없이 쓰는 임시 길이 있었다 — 그때 주인 없이 적힌 ‘올릴 것’은 지금도 로그인하면 올라간다.)
    · 열쇠(256비트)는 로그인했을 때 회사 서버가 그 실장에게만 준다. 비밀번호(6자리)로 만들지 않는다 — 공개된 곳의 사본은 열쇠 없이는 풀 수 없다. */
 function frontKeep(me) {                              // 로그인돼 있는 동안: 꺼졌을 때 쓸 열쇠를 이 기기에 적어 둔다
   if (!me || me.role !== "staff") return; const S = frontSess() || { tok: SRV.token, keep: true };
-  if (me.mir && me.mir.id && me.mir.key) S.mir = { id: me.mir.id, key: me.mir.key }; S.who = me.id; frontSess(S) }
+  if (me.mir && me.mir.id && me.mir.key) S.mir = { id: me.mir.id, key: me.mir.key }; S.who = me.id;
+  if (me.off) S.off = me.off; if (me.now) S.at = me.now; frontSess(S) }   // (v84) off = 내 전용 코드(꺼져 있을 때 다시 로그인할 때 쓴다) · at = 서버와 마지막으로 맞춘 때(서버 시각)
 function frontOut() { frontSess(null); keepClear(); SRV.token = "0"; SRV.me = null; SRV.list = null; SRV.mirList = null; srvChip() }   // 로그아웃: 이 기기의 로그인 열쇠와 보관본 열쇠를 지운다
 function frontHide() { const o = $("#frontLogin"); if (o) o.remove() }
-function frontAfter() {                               // 연결해 본 뒤: 로그인 화면을 띄울지 · 보관본을 받을지
+function frontAfter() {                               // 연결해 본 뒤: 로그인 화면을 띄울지 · 보관본을 받을지 — (v84) 로그인하지 않으면 쓸 수 없다
   if (!SRV.front) return;
-  if (SRV.me) { frontHide(); frontAfter.temp = false; frontAfter.told = false; SRV.mirList = null; return }
-  const has = SRV.token !== "0";
-  if (SRV.down) { if (has || frontAfter.temp) { frontHide(); if (has) mirLoad() } else frontLogin("down"); return }
-  if (frontAfter.temp) { if (!frontAfter.told) { frontAfter.told = true; toast("회사 컴퓨터가 켜졌습니다. 화면 위의 ‘연결 안 됨 · 눌러서 다시 로그인’을 눌러 로그인하면, 여기서 쓴 견적이 내 견적으로 올라갑니다.") } return }
-  const exp = frontAfter.exp; frontAfter.exp = false; frontLogin(exp ? "expired" : "");
+  if (SRV.me) { frontHide(); SRV.mirList = null; return }
+  const has = SRV.token !== "0", cur = $("#frontLogin");
+  if (SRV.down) {
+    if (has && tokDead(SRV.token)) { const c = offCode(); frontOut(); offCode(c); frontLogin("down", "로그인한 지 30일이 지났습니다. 다시 로그인해 주세요."); return }   // 꺼져 있어도 기한은 지킨다 (전용 코드는 이 창에 남겨 둬서 바로 다시 로그인할 수 있다)
+    if (has) { frontHide(); mirLoad(); return }
+    if (!cur || cur.dataset.mode !== "down") frontLogin("down"); return }
+  const exp = frontAfter.exp; frontAfter.exp = false; if (exp || !cur || cur.dataset.mode !== "up") frontLogin(exp ? "expired" : "");
 }
+const OFF_IT = 200000;                                // PBKDF2 횟수 — 서버(sido_server.py 의 OFF_IT)와 같아야 한다
+const tokDead = t => { const m = /^s\d+x([0-9a-f]+)x/.exec(t || ""); return !!m && parseInt(m[1], 16) * 1000 < Date.now() };   // 로그인 열쇠의 기한이 지났는가 — 꺼져 있을 때는 서버가 알려 주지 못하므로 화면이 본다
+async function offKdf(pw, salt, n) { const k = await crypto.subtle.importKey("raw", new TextEncoder().encode(pw), "PBKDF2", false, ["deriveBits"]); return new Uint8Array(await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt, iterations: OFF_IT }, k, n * 8)) }
+async function frontOffLogin(id, code, keep, off) {   // 꺼져 있을 때의 로그인 → "" 됨 · "nocode" 전용 주소(코드)가 없음 · "nofile" 그 코드의 꾸러미가 없음 · "bad" 아이디·비밀번호가 틀림 · "net" 받지 못함
+  off = offNorm(off) || offCode(); if (!off) return "nocode";
+  if (!FRONT || !FRONT.mir || !window.crypto || !crypto.subtle) return "net";
+  let buf; try { const loc = [...await offKdf(off, new TextEncoder().encode("sido-off-loc-v1"), 16)].map(b => b.toString(16).padStart(2, "0")).join("");
+    const r = await fetch(FRONT.mir + "o/" + loc + ".bin", { cache: "no-store" }); if (r.status === 404) return "nofile"; if (!r.ok) return "net"; buf = new Uint8Array(await r.arrayBuffer()) } catch (e) { return "net" }
+  if (buf.length < 48 || buf[0] !== 83 || buf[1] !== 79 || buf[2] !== 49) return "nofile";
+  let j; try { const key = await crypto.subtle.importKey("raw", await offKdf(off + "|" + String(id).replace(/\s+/g, "").toLowerCase() + "|" + code, buf.slice(3, 19), 32), "AES-GCM", false, ["decrypt"]);
+    j = JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({ name: "AES-GCM", iv: buf.slice(19, 31) }, key, buf.slice(31)))) } catch (e) { return "bad" }
+  if (!j || !j.tok || !j.id || tokDead(j.tok)) return "bad";
+  frontSess({ tok: j.tok, keep: !!keep, mir: j.mir, who: j.id, off, at: +j.at || 0 }); offCode(""); store.set("sido_srv_who", { id: j.id, name: j.name, login: j.login || "" });
+  SRV.token = j.tok; SRV.me = null; SRV.down = true; SRV.mirList = null; return "" }
+const OFF_SAY = { nocode: "회사 컴퓨터가 꺼져 있어, 지금은 ‘내 전용 주소’가 있어야 로그인됩니다. 관리자에게 받은 주소를 아래 칸에 붙여 넣어 주세요.", nofile: "전용 주소가 맞지 않거나 바뀌었습니다(사용이 중지된 아이디여도 이렇게 나옵니다). 비밀번호를 새로 받았다면 주소도 새로 받아야 합니다 — 관리자에게 받은 가장 최근 주소를 넣어 주세요.", bad: "아이디 또는 비밀번호가 맞지 않습니다.", net: "인터넷 연결을 확인한 뒤 다시 눌러 주세요." };
+function frontOffIn() {                               // 꺼져 있을 때 로그인됐다: 화면을 로그인한 상태로 맞추고 내 견적의 사본을 받는다
+  frontHide(); const w = store.get("sido_srv_who", {}) || {}; if (w.name && !E.info.manager) { E.info.manager = w.name; save(); if ($("#info")) renderInfo() }
+  srvChip(); const eb = document.querySelector(".estbar"); if (eb) eb.outerHTML = estBar(); if ($("#view-saved") && !$("#view-saved").hidden) renderSaved(); mirLoad();
+  toast(`${w.name ? w.name + " 실장님, " : ""}로그인했습니다. 회사 컴퓨터가 꺼져 있어 저장해 둔 견적은 사본으로 보여 드리고, 여기서 쓴 견적은 회사 컴퓨터가 켜지면 저절로 올라갑니다.`) }
 async function frontDoLogin(id, code, keep) {         // → "" 됨 · "bad" · "wait:분" · "blocked" · "down"
   let r, j = {}; try { r = await fetch(srvU("/api/login"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ login: id, code }) }); j = await r.json().catch(() => ({})) } catch (e) { return "down" }
-  if (r.ok && j.token) { frontSess({ tok: j.token, keep: !!keep }); SRV.token = j.token; frontAfter.temp = false; await srvConnect(); return SRV.me ? "" : SRV.down ? "down" : "bad" }
+  if (r.ok && j.token) { frontSess({ tok: j.token, keep: !!keep, off: offCode() }); offCode(""); SRV.token = j.token; await srvConnect(); return SRV.me ? "" : SRV.down ? "down" : "bad" }
   return r.status === 429 ? "wait:" + (j.min || 10) : r.status === 403 ? "blocked" : r.status >= 500 ? "down" : "bad";
 }
-function frontLogin(why) {
-  frontHide(); const down = why === "down", w = store.get("sido_srv_who", {}) || {};
-  const bt = "font:inherit;font-weight:700;font-size:1.05em;width:100%;padding:13px;border-radius:12px;cursor:pointer;margin-top:12px;", inp = "display:block;font:inherit;font-size:1.25em;width:100%;padding:11px 13px;border:2px solid #aab5af;border-radius:12px;background:#fff;color:#1c2320;margin-top:4px;box-sizing:border-box";
-  document.body.insertAdjacentHTML("beforeend", `<div id="frontLogin" role="dialog" aria-modal="true" aria-label="실장 로그인" style="position:fixed;inset:0;z-index:99999;background:rgba(238,242,240,.97);display:flex;align-items:flex-start;justify-content:center;padding:5vh 16px 16px;overflow:auto">
+function frontLogin(why, note) {                      // 로그인 창 (화면을 덮는다 — 로그인해야 쓸 수 있다). why "down" = 회사 컴퓨터가 꺼져 있음 → 전용 주소의 코드로 로그인
+  const o0 = $("#frontLogin"), v0 = o0 ? { id: ($("#flId") || {}).value, pw: ($("#flPw") || {}).value, u: ($("#flU") || {}).value, keep: ($("#flKeep") || {}).checked } : {};   // 다시 그려도 치던 글자는 남긴다
+  frontHide(); const down = why === "down", w = store.get("sido_srv_who", {}) || {}, hasU = !!offCode();
+  const bt = "font:inherit;font-weight:700;font-size:1.05em;width:100%;padding:13px;border-radius:12px;cursor:pointer;margin-top:12px;", inp = "display:block;font:inherit;font-size:1.25em;width:100%;padding:11px 13px;border:2px solid #aab5af;border-radius:12px;background:#fff;color:#1c2320;margin-top:4px;box-sizing:border-box", lb = "display:block;font-size:.9em;font-weight:700;color:#3d4843";
+  document.body.insertAdjacentHTML("beforeend", `<div id="frontLogin" data-mode="${down ? "down" : "up"}" role="dialog" aria-modal="true" aria-label="실장 로그인" style="position:fixed;inset:0;z-index:99999;background:rgba(238,242,240,.97);display:flex;align-items:flex-start;justify-content:center;padding:5vh 16px 16px;overflow:auto">
   <form style="background:#fff;border:1px solid #d5dbd7;border-radius:18px;max-width:27em;width:100%;box-shadow:0 10px 32px rgba(20,50,35,.12);overflow:hidden;font-size:18px;line-height:1.6;color:#1c2320">
     <div style="background:#2f7d59;color:#fff;padding:20px 24px 16px"><b style="display:block;font-size:1.4em;line-height:1.3">시도디자인 견적프로그램</b><span style="font-size:.92em;opacity:.95">실장 로그인</span></div>
     <div style="padding:16px 24px 22px">${down ? `
-      <p style="margin:0 0 10px"><b>지금 회사 컴퓨터가 꺼져 있어</b> 로그인을 확인할 수 없습니다.</p>
-      <p style="margin:0 0 10px">견적은 <b>로그인 없이 바로 쓸 수 있습니다.</b> 쓴 견적은 이 기기에 저장되고, 회사 컴퓨터가 켜진 뒤 로그인하면 내 견적으로 올라갑니다.</p>
-      <p style="margin:0;color:#5c6661;font-size:.9em">전에 저장한 견적은, 이 기기에서 한 번 로그인해 둔 뒤부터는 회사 컴퓨터가 꺼져 있어도 보입니다.</p>
-      <button type="button" id="flTemp" style="${bt}border:0;background:#2f7d59;color:#fff">로그인 없이 견적 쓰기</button>
-      <button type="button" id="flRetry" style="${bt}border:1px solid #c5cfc9;background:#eef2f0;color:#2f5d49;font-weight:600">다시 연결해 보기</button>
-      <div id="flMsg" role="alert" style="min-height:1.6em;margin-top:8px;color:#b3261e;font-weight:600"></div>` : `
-      <label style="display:block;font-size:.9em;font-weight:700;color:#3d4843">아이디<input id="flId" autocomplete="username" autocapitalize="off" spellcheck="false" value="${esc(w.login || "")}" style="${inp}"></label>
-      <label style="display:block;font-size:.9em;font-weight:700;color:#3d4843;margin-top:12px">비밀번호 (숫자 6자리)<input id="flPw" type="password" inputmode="numeric" autocomplete="current-password" maxlength="12" style="${inp}"></label>
-      <label style="display:flex;gap:10px;align-items:flex-start;margin-top:14px;cursor:pointer;font-size:.95em"><input type="checkbox" id="flKeep" checked style="width:22px;height:22px;margin:4px 0 0;flex:none"><span><b>이 기기에서 로그인 유지 (30일)</b><small style="display:block;color:#5c6661">여럿이 쓰는 컴퓨터에서는 끄세요.</small></span></label>
-      <button type="submit" id="flGo" style="${bt}border:0;background:#2f7d59;color:#fff">로그인</button>
-      <div id="flMsg" role="alert" style="min-height:1.6em;margin-top:8px;color:#b3261e;font-weight:600">${why === "expired" ? "로그인한 지 오래됐거나 비밀번호가 바뀌었습니다. 다시 로그인해 주세요." : ""}</div>
-      <p style="margin:6px 0 0;color:#5c6661;font-size:.88em">아이디·비밀번호를 모르면 관리자에게 문의하세요. 회사 컴퓨터가 꺼져 있어도 이 주소는 열립니다.</p>`}
+      <p style="margin:0 0 12px;padding:10px 12px;background:#fff6e5;border:1px solid #e8cf9a;border-radius:10px;font-size:.92em;line-height:1.55"><b>지금 회사 컴퓨터가 꺼져 있습니다.</b> ${hasU ? "그래도 로그인됩니다. 저장해 둔 내 견적이 보이고, 새로 쓴 견적은 회사 컴퓨터가 켜지면 저절로 올라갑니다." : "이 기기에서 처음이면 <b>내 전용 주소</b>가 있어야 로그인됩니다 — 관리자에게 받은 글에 있는 주소입니다."}</p>` : ""}
+      <label style="${lb}">아이디<input id="flId" autocomplete="username" autocapitalize="off" spellcheck="false" value="${esc(v0.id || w.login || "")}" style="${inp}"></label>
+      <label style="${lb};margin-top:12px">비밀번호 (숫자 6자리)<input id="flPw" type="password" inputmode="numeric" autocomplete="current-password" maxlength="12" value="${esc(v0.pw || "")}" style="${inp}"></label>${down && !hasU ? `
+      <label style="${lb};margin-top:12px">내 전용 주소 <small style="font-weight:500;color:#5c6661">(받은 주소를 그대로 붙여 넣으세요)</small><input id="flU" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="https://…/#u=…" value="${esc(v0.u || "")}" style="${inp};font-size:1em"></label>` : ""}
+      <label style="display:flex;gap:10px;align-items:flex-start;margin-top:14px;cursor:pointer;font-size:.95em"><input type="checkbox" id="flKeep"${v0.keep === false ? "" : " checked"} style="width:22px;height:22px;margin:4px 0 0;flex:none"><span><b>이 기기에서 로그인 유지 (30일)</b><small style="display:block;color:#5c6661">여럿이 쓰는 컴퓨터에서는 끄세요.</small></span></label>
+      <button type="submit" id="flGo" style="${bt}border:0;background:#2f7d59;color:#fff">로그인</button>${down ? `
+      <button type="button" id="flRetry" style="${bt}border:1px solid #c5cfc9;background:#eef2f0;color:#2f5d49;font-weight:600">회사 컴퓨터에 다시 연결해 보기</button>` : ""}
+      <div id="flMsg" role="alert" style="min-height:1.6em;margin-top:8px;color:#b3261e;font-weight:600">${esc(note || (why === "expired" ? "로그인한 지 오래됐거나 비밀번호가 바뀌었습니다. 다시 로그인해 주세요." : ""))}</div>
+      <p style="margin:6px 0 0;color:#5c6661;font-size:.88em">${down ? "전용 주소가 없으면, 회사 컴퓨터가 켜져 있을 때 한 번 로그인해 두세요. 그 뒤로는 그 기기에서 꺼져 있어도 열립니다." : "로그인해야 프로그램을 쓸 수 있습니다. 아이디·비밀번호를 모르면 관리자에게 문의하세요."}</p>
     </div></form></div>`);
   const box = $("#frontLogin"), say = t => { const m = $("#flMsg"); if (m) m.textContent = t };
-  if (down) {
-    $("#flTemp").onclick = () => { frontAfter.temp = true; frontHide(); toast("로그인 없이 씁니다. 저장한 견적은 이 기기에 남고, 회사 컴퓨터가 켜진 뒤 로그인하면 내 견적으로 올라갑니다.") };
-    $("#flRetry").onclick = async () => { say("연결해 보는 중…"); await srvConnect(); if ($("#frontLogin") && SRV.down) say("아직 꺼져 있습니다. 로그인 없이 쓰거나, 잠시 뒤 다시 눌러 주세요.") };
-    return }
-  box.querySelector("form").onsubmit = async ev => { ev.preventDefault(); const id = $("#flId").value.trim(), pw = $("#flPw").value.replace(/\D/g, ""), go = $("#flGo");
+  if (down) $("#flRetry").onclick = async () => { say("연결해 보는 중…"); await srvConnect(); if ($("#frontLogin") && SRV.down) say("아직 꺼져 있습니다. 위에 아이디·비밀번호를 넣고 로그인하거나, 잠시 뒤 다시 눌러 주세요.") };
+  box.querySelector("form").onsubmit = async ev => { ev.preventDefault(); const id = $("#flId").value.trim(), pw = $("#flPw").value.replace(/\D/g, ""), keep = $("#flKeep").checked, go = $("#flGo");
     if (!id || !pw) { say("아이디와 비밀번호를 넣어 주세요."); return } go.disabled = true; go.textContent = "확인하는 중…"; say("");
-    const r = await frontDoLogin(id, pw, $("#flKeep").checked); if (!$("#frontLogin")) return;
-    if (r === "down") { frontLogin("down"); return } go.disabled = false; go.textContent = "로그인";
+    const r = await frontDoLogin(id, pw, keep);
+    if (r === "down") {                               // 회사 컴퓨터가 대답하지 않는다 → 전용 주소의 코드로 ‘꺼져 있을 때의 로그인’
+      const o = await frontOffLogin(id, pw, keep, ($("#flU") || {}).value || "");
+      if (!o) { frontOffIn(); return } if ($("#frontLogin")) frontLogin("down", OFF_SAY[o] || OFF_SAY.net); return }
+    if (!$("#frontLogin")) return; go.disabled = false; go.textContent = "로그인";
     say(r === "bad" ? "아이디 또는 비밀번호가 맞지 않습니다." : r === "blocked" ? "사용이 중지된 아이디입니다. 관리자에게 문의하세요." : r.startsWith("wait:") ? `여러 번 틀려 잠시 막혔습니다. ${r.slice(5)}분 뒤에 다시 해 주세요.` : "") };
-  setTimeout(() => { const f = $("#flId"); if (f) (f.value ? $("#flPw") : f).focus() }, 50);
+  setTimeout(() => { const f = $("#flId"), u = $("#flU"); if (f) (!f.value ? f : !$("#flPw").value ? $("#flPw") : u && !u.value ? u : $("#flPw")).focus() }, 50);
 }
+function myLink() { const off = SRV && SRV.me && SRV.me.off || (SRV && SRV.front ? (frontSess() || {}).off : "") || "", base = SRV && SRV.front ? location.origin + location.pathname : SRV && SRV.me && SRV.me.front || ""; return off && base ? base + "#u=" + off : "" }   // 내 전용 주소 (로그인한 본인 화면에만)
+function myLinkHtml() { return myLink() ? `<p class="note" style="margin:0 0 10px">집 컴퓨터 · 휴대폰처럼 <b>다른 기기에서 처음 쓸 때</b>는 <b>내 전용 주소</b>로 여세요 — 회사 컴퓨터가 꺼져 있어도 로그인됩니다. <button type="button" class="btn sm" data-mylink>내 전용 주소 복사</button> <span class="note">남에게는 보내지 마세요.</span></p>` : "" }
+document.addEventListener("click", async ev0 => { const b = ev0.target.closest && ev0.target.closest("[data-mylink]"); if (!b) return; const u = myLink(); if (!u) return; const ok = await copyText(u);
+  toast(ok ? "내 전용 주소를 복사했습니다. 카카오톡 ‘나에게 보내기’ 등으로 쓸 기기에 보내서 여세요. 남에게는 보내지 마세요." : "복사하지 못했습니다. 관리자에게 ‘알려 줄 글’을 다시 받아 주세요.") });
 function frontDownNote() {                            // ‘저장된 견적’ 맨 위: 꺼져 있을 때 무엇이 보이는지
   const S = frontSess(), n = pendIds().length, up = n ? ` (올릴 견적 <b>${n}건</b>)` : "", re = ' <button type="button" class="btn ghost sm" data-srvretry>지금 다시 연결해 보기</button>';
-  if (!S || !S.tok) return `<p class="note down"><b>회사 컴퓨터가 꺼져 있고, 이 기기는 아직 로그인한 적이 없어</b> 이 기기에서 쓴 견적만 보입니다${up}. 켜진 뒤 로그인하면 여기서 쓴 견적이 내 견적으로 올라가고, 전에 저장한 견적도 모두 보입니다.${re}</p>`;
+  if (!S || !S.tok) return `<p class="note down"><b>회사 컴퓨터가 꺼져 있고, 로그인돼 있지 않습니다.</b> 로그인하면 저장해 둔 내 견적이 보입니다${up}.${re}</p>`;
   if (Array.isArray(SRV.mirList)) return `<p class="note down"><b>회사 컴퓨터가 꺼져 있어</b> 회사에 보관해 둔 내 견적은 <b>사본</b>으로 보여 드립니다 (꺼지기 몇 분 전까지 저장한 것 · ${SRV.mirList.length}건). 그대로 열어서 쓸 수 있고, 여기서 저장한 견적${up}은 켜지면 저절로 회사에도 보관됩니다.${re}</p>`;
   return `<p class="note down"><b>회사 컴퓨터가 꺼져 있습니다.</b> ${mirLoad.busy ? "회사에 보관해 둔 내 견적의 사본을 불러오는 중입니다…" : keepList() ? "회사에 보관해 둔 내 견적은 이 기기에 받아 둔 사본(마지막으로 연결됐을 때까지)으로 보여 드립니다." : "회사에 보관해 둔 내 견적의 사본을 불러오지 못해, 지금은 이 기기에 있는 견적만 보입니다."} 여기서 저장한 견적${up}은 켜지면 저절로 회사에도 보관됩니다.${re}</p>`;
 }
@@ -5241,9 +5274,12 @@ async function mirDec(rel) {                          // 잠근 사본 한 파�
   return new TextDecoder().decode(await crypto.subtle.decrypt({ name: "AES-GCM", iv: buf.slice(3, 15) }, key, buf.slice(15)));
 }
 async function mirLoad() {                            // 꺼져 있을 때: 회사에 보관해 둔 내 견적 목록(사본)을 받는다
-  if (!SRV || !SRV.front || mirLoad.busy) return; const S = frontSess(); if (!S || !S.mir) return; mirLoad.busy = true;
-  try { const j = JSON.parse(await mirDec("i.bin")); if (SRV.down) SRV.mirList = Array.isArray(j.list) ? j.list : [] } catch (e) { }
+  if (!SRV || !SRV.front || mirLoad.busy) return; const S = frontSess(); if (!S || !S.mir) return; mirLoad.busy = true; let gone = false;
+  try { const ok = await fetch(FRONT.mir + "ok.json", { cache: "no-store" }).then(r => r.ok ? r.json() : null).catch(() => null);   // (v84) 내 아이디가 그 사이 사용 중지됐거나 비밀번호가 바뀌었는가: 이 기기가 서버와 마지막으로 맞춘 뒤에 만든 목록에 내 폴더가 없으면 그렇다
+    if (SRV.down && ok && Array.isArray(ok.ids) && +ok.t > (+S.at || 0) && !ok.ids.includes(S.mir.id)) gone = true;
+    else { const j = JSON.parse(await mirDec("i.bin")); if (SRV.down) SRV.mirList = Array.isArray(j.list) ? j.list : [] } } catch (e) { }
   finally { mirLoad.busy = false; SRV.mirAt = Date.now() }
+  if (gone) { frontOut(); frontLogin("down", "사용이 중지됐거나 비밀번호가 바뀐 아이디입니다. 다시 로그인해 주세요 (모르면 관리자에게 문의하세요)."); return }
   if ($("#view-saved") && !$("#view-saved").hidden) renderSaved(); const eb = document.querySelector(".estbar"); if (eb) eb.outerHTML = estBar();
 }
 async function mirGet(id) {                           // 사본에서 견적 하나를 꺼낸다 (따로 떼어 둔 큰 그림도 다시 붙인다)
@@ -5273,15 +5309,15 @@ async function srv(method, path, body) {
 const PEND_K = "sido_srv_pend";
 const pendWho = () => SRV && SRV.me ? SRV.me.id : (store.get("sido_srv_who", {}) || {}).id || "?";
 const pendIds = () => { const P = store.get(PEND_K, {}) || {}, w = pendWho(); return Object.keys(P).filter(id => P[id] === "?" || w === "?" || P[id] === w) };
-function pendAdd(X) { if (!SRV || !SRV.token || !X || !X.id) return; srvMap(PEND_K, X.id, pendWho()); srvChip() }
+function pendAdd(X) { if (!SRV || !SRV.token || SRV.token === "0" || !X || !X.id) return;   /* "0" = 항상 열리는 주소에서 로그인하지 않은 상태 — 로그인해야 쓰므로 올릴 것도 적지 않는다 (v84) */ srvMap(PEND_K, X.id, pendWho()); srvChip() }
 function srvChip() {                                  // 화면 위 표시: 연결됨 · 회사 컴퓨터 꺼짐(이 기기에 저장 중) · 다시 로그인
   if (!SRV || !document.querySelector(".topin")) return; for (const id of ["#srvChip", "#srvOut"]) { const old = $(id); if (old) old.remove() }
   const down = !!(SRV.token && SRV.down), n = down ? pendIds().length : 0, w = SRV.me || (SRV.token ? store.get("sido_srv_who", {}) || {} : {});
   const who = SRV.me && SRV.me.role === "admin" ? "관리자" : w.name ? esc(w.name) + " 실장님" : "", lg = SRV.token && w.login ? ` (${esc(w.login)})` : "";   // (v65) 누가 로그인했는지 오른쪽 위에: ‘박재성 실장님 (sido100) 로그인 중’
   const txt = down ? `${who ? who + " · " : ""}회사 컴퓨터 꺼짐 · 이 기기에 저장 중${n ? ` (올릴 견적 ${n}건)` : ""}` : SRV.me ? (SRV.token ? `<b>${who}</b>${lg} 로그인 중` : "회사 저장소 연결 · 관리자" + (ADM_OUT && SRV.me.dev ? ` (${esc(SRV.me.dev)})` : "")) : SRV.token ? "회사 저장소 연결 안 됨 · 눌러서 다시 로그인" : ADM_OUT ? "관리자 로그인이 풀림 · 눌러서 다시 들어가기" : "회사 저장소: 관리자 키 필요";
   const at = down ? ' data-srvretry role="button" tabindex="0" style="cursor:pointer" title="회사 컴퓨터가 켜지면 저절로 다시 연결되고, 그동안 이 기기에 저장한 견적도 회사 저장소에 올라갑니다. 누르면 지금 다시 연결해 봅니다"' : SRV.me ? (SRV.token ? ' title="로그인돼 있습니다. 저장한 견적은 회사에도 보관됩니다"' : ' title="회사 저장소에 연결돼 있습니다. 저장한 견적은 회사 저장소에 올라갑니다"') : SRV.token ? ' data-srvout role="button" tabindex="0" style="cursor:pointer" title="누르면 로그인 화면으로 갑니다"' : ADM_OUT ? ' data-admre role="button" tabindex="0" style="cursor:pointer" title="들어온 지 12시간이 지났거나 다른 곳에서 잠갔습니다. 누르면 관리자 비밀번호를 다시 넣는 화면으로 갑니다 (쓰던 내용은 이 기기에 남아 있습니다)"' : "";
-  document.querySelector(".topin").insertAdjacentHTML("beforeend", `<span class="chip ${SRV.me && !down ? "ok" : "warn"}" id="srvChip"${at}>${txt}</span>${SRV.me && SRV.token && !down ? '<span class="chip" id="srvOut" data-srvout role="button" tabindex="0" style="cursor:pointer" title="다른 아이디로 들어가거나, 여럿이 쓰는 컴퓨터에서 쓰고 난 뒤에 누르세요">로그아웃</span>' : SRV.me && ADM_OUT ? '<span class="chip" id="srvOut" data-admout role="button" tabindex="0" style="cursor:pointer" title="관리자 화면을 잠급니다. 다시 열려면 관리자 비밀번호를 넣어야 합니다. 자리를 비울 때 누르세요">잠그기</span>' : ""}`);
-  if (!SRV.front && SRV.token && SRV.me && SRV.me.front && !$("#frontTip")) document.querySelector(".topin").insertAdjacentHTML("beforeend", `<a class="chip ok" id="frontTip" href="${esc(SRV.me.front)}" target="_blank" rel="noopener" style="text-decoration:none" title="회사 컴퓨터가 꺼져 있어도 열리는 주소입니다. 아이디·비밀번호는 같고, 회사에 보관된 내 견적이 그대로 보입니다. 즐겨찾기를 이 주소로 바꿔 주세요">꺼져 있어도 열리는 새 주소 →</a>`);   // (v81)
+  document.querySelector(".topin").insertAdjacentHTML("beforeend", `<span class="chip ${SRV.me && !down ? "ok" : "warn"}" id="srvChip"${at}>${txt}</span>${(SRV.me && SRV.token && !down) || (SRV.front && down && SRV.token !== "0") ? '<span class="chip" id="srvOut" data-srvout role="button" tabindex="0" style="cursor:pointer" title="다른 아이디로 들어가거나, 여럿이 쓰는 컴퓨터에서 쓰고 난 뒤에 누르세요">로그아웃</span>' : SRV.me && ADM_OUT ? '<span class="chip" id="srvOut" data-admout role="button" tabindex="0" style="cursor:pointer" title="관리자 화면을 잠급니다. 다시 열려면 관리자 비밀번호를 넣어야 합니다. 자리를 비울 때 누르세요">잠그기</span>' : ""}`);
+  if (!SRV.front && SRV.token && SRV.me && SRV.me.front && !$("#frontTip")) document.querySelector(".topin").insertAdjacentHTML("beforeend", `<a class="chip ok" id="frontTip" href="${esc(SRV.me.front + (SRV.me.off ? "#u=" + SRV.me.off : ""))}" target="_blank" rel="noopener" style="text-decoration:none" title="회사 컴퓨터가 꺼져 있어도 열리는 주소입니다(내 전용 주소 — 남에게 보내지 마세요). 아이디·비밀번호는 같고, 회사에 보관된 내 견적이 그대로 보입니다. 즐겨찾기를 이 주소로 바꿔 주세요">꺼져 있어도 열리는 새 주소 →</a>`);   // (v81)
 }
 function srvLost() { if (!SRV || !SRV.token || SRV.down) return; SRV.down = true; if (SRV.front) mirLoad(); srvChip(); const eb = document.querySelector(".estbar"); if (eb) eb.outerHTML = estBar(); if ($("#view-saved") && !$("#view-saved").hidden) renderSrv() }   // 쓰는 중에 서버가 대답하지 않게 됐다
 function swKeep() {                                   // 이 기기에 화면 파일을 기억시켜 둔다 (연결될 때마다 새 판으로 갈아 둔다)
@@ -5514,12 +5550,12 @@ document.addEventListener("click", async ev0 => { const t = ev0.target; if (!SRV
 function srvAdminHtml() {                            // 관리자만: 실장 아이디·번호 관리 + 서버 상태(챗봇 AI · 프로그램 새 판)
   const I = SRV.info || {}, ai = I.ai, up = I.update;
   return `<details class="more" style="margin-top:8px"${SRV.staffOpen ? " open" : ""}><summary>실장 아이디·번호 관리 ${(SRV.staff || []).length ? `<span class="chip">${SRV.staff.length}명</span> ` : ""}<span class="note">실장마다 아이디와 번호를 주면 그것으로 로그인해서 들어옵니다 · 퇴사자는 ‘사용 중지’</span></summary><div class="bd">
-      ${I.front && I.front.url ? `<p class="note"><b>실장 접속 주소 (언제나 열림)</b> <input readonly value="${esc(I.front.url)}" style="width:auto;min-width:320px" onclick="this.select()" aria-label="언제나 열리는 실장 접속 주소"> 회사 컴퓨터가 꺼져 있어도 열리는 주소입니다. <span class="note">실장에게는 이 주소를 알려 주세요 (아이디·번호는 같습니다). 꺼져 있을 때 실장이 보는 내 견적 사본: ${I.front.mirror && I.front.mirror.on ? (I.front.mirror.ok === false ? "<b>올리지 못함</b> — " + esc(I.front.mirror.msg || "") : "올리는 중" + (I.front.mirror.at ? " (마지막 " + esc(I.front.mirror.at) + ")" : "")) : "꺼짐"}</span></p>` : ""}
+      ${I.front && I.front.url ? `<p class="note"><b>실장 접속 주소 (언제나 열림)</b> <input readonly value="${esc(I.front.url)}" style="width:auto;min-width:320px" onclick="this.select()" aria-label="언제나 열리는 실장 접속 주소"> 회사 컴퓨터가 꺼져 있어도 열리는 주소입니다. <span class="note">${I.front.offline ? "<b>‘알려 줄 글 복사’에는 실장마다 다른 ‘전용 주소’가 들어갑니다</b> — 그 주소로 열면 회사 컴퓨터가 꺼져 있어도 처음 쓰는 기기에서 로그인됩니다(본인에게만 보내세요)." : "실장에게는 이 주소를 알려 주세요 (아이디·번호는 같습니다)."} 꺼져 있을 때 실장이 보는 내 견적 사본: ${I.front.mirror && I.front.mirror.on ? (I.front.mirror.ok === false ? "<b>올리지 못함</b> — " + esc(I.front.mirror.msg || "") : "올리는 중" + (I.front.mirror.at ? " (마지막 " + esc(I.front.mirror.at) + ")" : "")) : "꺼짐"}</span></p>` : ""}
       ${I.lan ? `<p class="note"><b>${I.front && I.front.url ? "회사 주소 (회사 컴퓨터가 켜져 있을 때)" : "실장 접속 주소"}</b> ${I.outside && I.outside.url ? `<input readonly value="${esc(I.outside.url + "/")}" style="width:auto;min-width:270px" onclick="this.select()" aria-label="밖에서도 되는 실장 접속 주소"> 사무실 안팎 어디서나 이 주소를 열고 아이디와 번호를 넣습니다. <span class="note">실장에게는 이 주소만 알려 주세요.</span>` : `<input readonly value="${esc(I.lan + "/")}" style="width:auto;min-width:230px" onclick="this.select()" aria-label="실장 접속 주소"> 같은 사무실 인터넷에 연결된 기기에서 이 주소를 열고 아이디와 번호를 넣습니다. <span class="note">밖(집·카페)에서는 이 주소가 열리지 않습니다.</span>`}<br><b>저장 위치</b> ${esc(I.data || "")} <span class="note">· 견적 ${I.est || 0}건 · 보낸 견적 ${I.sent || 0}건 · 도면 ${I.plans || 0}건${I.backup ? " · 백업 " + esc(I.backup) : " · 백업 둘 곳 아직 없음"}</span></p>` : ""}
       <div class="toolbar"><input id="staffName" placeholder="실장 이름" style="flex:0 1 150px;width:auto" aria-label="새 실장 이름"><input id="staffLogin" placeholder="아이디 (비우면 ${esc(I.nextLogin || "자동")})" maxlength="24" autocapitalize="none" spellcheck="false" style="flex:0 1 190px;width:auto" aria-label="새 실장 아이디"><button class="btn sm" id="staffAdd">실장 추가</button></div>
       ${(SRV.staff || []).length ? `<div class="toolbar" style="margin-top:6px"><input type="search" id="staffQ" value="${esc(SRV.staffQ || "")}" placeholder="이름 · 아이디로 찾기 (실장 ${SRV.staff.length}명 · 사용 중 ${SRV.staff.filter(s => s.active !== false).length}명)" autocapitalize="none" spellcheck="false" style="flex:1 1 240px;width:auto" aria-label="실장 찾기 (이름·아이디)"><span class="note" id="staffCnt"></span></div>` : ""}
       <ul class="list" style="margin-top:6px">${(SRV.staff || []).map(s => `<li data-sq="${esc(staffKey(s.name) + "|" + staffKey(s.login) + "|" + (s.active === false ? "중지" : "사용중"))}"><b>${esc(s.name)}</b><span class="note">아이디</span><input value="${esc(s.login || "")}" data-staffid="${esc(s.id)}" data-old="${esc(s.login || "")}" maxlength="24" autocapitalize="none" spellcheck="false" style="flex:0 1 120px;width:auto;text-align:center;font-weight:700" aria-label="${esc(s.name)} 아이디" title="고쳐 적으면 ‘아이디 저장’이 나옵니다"><button class="btn sm primary" data-staffidsave="${esc(s.id)}" hidden>아이디 저장</button><span class="note">번호(비밀번호)</span><input readonly value="${esc(s.code || "")}" style="flex:0 1 100px;width:auto;text-align:center;font-weight:700;letter-spacing:.08em" onclick="this.select()" aria-label="${esc(s.name)} 번호"><span class="chip ${s.active === false ? "warn" : "ok"}">${s.active === false ? "중지" : "사용 중"}</span><span class="spacer"></span><button class="btn sm" data-staffcopy="${esc(s.id)}" title="주소·아이디·번호를 한 번에 복사합니다. 메신저에 붙여 넣어 본인에게만 보내세요">알려 줄 글 복사</button><button class="btn sm" data-staffgo="${esc(s.id)}" title="${s.active === false ? "사용 중지된 아이디는 들어갈 수 없습니다. ‘다시 사용’을 누른 뒤에 볼 수 있습니다" : "이 실장이 보는 화면을 새 창에 그대로 엽니다 (그 실장의 아이디·번호로 들어간 것과 같습니다)"}"${s.active === false ? " disabled" : ""}>실장 화면 보기</button><button class="btn sm" data-stafftoggle="${esc(s.id)}|${s.active === false ? 1 : 0}">${s.active === false ? "다시 사용" : "사용 중지"}</button><button class="btn sm" data-staffrenum="${esc(s.id)}">번호 새로 만들기</button></li>`).join("") || '<li class="note">아직 실장이 없습니다.</li>'}<li class="note" id="staffNone" hidden>찾는 실장이 없습니다. 이름이나 아이디를 다시 확인해 주세요. (‘중지’·‘사용’으로도 찾을 수 있습니다)</li></ul>
-      <p class="note">실장에게는 주소·아이디·번호 세 가지를 알려 줍니다(‘알려 줄 글 복사’). <b>번호가 그 실장의 비밀번호</b>이고, 관리자는 여기서 언제든 볼 수 있습니다. ‘실장 화면 보기’를 누르면 그 실장이 보는 화면이 새 창에 그대로 열립니다(원가·마진은 보이지 않는 실장용 화면). 아이디는 띄어쓰기·대소문자를 가리지 않습니다(sido 100 = sido100). 번호는 본인에게만 알려 주세요. ‘사용 중지’를 누르면 그 아이디로는 바로 들어올 수 없고, 열어 둔 화면도 저장소에 연결되지 않습니다. ‘번호 새로 만들기’를 하면 전 번호와 그 번호로 들어와 있던 화면이 모두 끊깁니다.</p></div></details>
+      <p class="note">실장에게는 주소·아이디·번호 세 가지를 알려 줍니다(‘알려 줄 글 복사’). <b>번호가 그 실장의 비밀번호</b>이고, 관리자는 여기서 언제든 볼 수 있습니다. ‘실장 화면 보기’를 누르면 그 실장이 보는 화면이 새 창에 그대로 열립니다(원가·마진은 보이지 않는 실장용 화면). 아이디는 띄어쓰기·대소문자를 가리지 않습니다(sido 100 = sido100). 번호는 본인에게만 알려 주세요. ‘사용 중지’를 누르면 그 아이디로는 바로 들어올 수 없고, 열어 둔 화면도 저장소에 연결되지 않습니다. ‘번호 새로 만들기’를 하면 전 번호와 그 번호로 들어와 있던 화면이 모두 끊깁니다(전용 주소도 바뀌니 ‘알려 줄 글’을 다시 보내 주세요). 회사 컴퓨터가 꺼져 있는 동안에는 여기 일을 할 수 없습니다 — 사용 중지·번호 새로 만들기는 켜져 있을 때 하고, 그러면 꺼진 뒤에도 그 실장의 기기는 인터넷에 닿는 대로 로그인이 풀립니다.</p></div></details>
     ${admDoorHtml()}
     ${patchHtml()}
     ${learnHtml()}
@@ -5559,7 +5595,7 @@ function renderSrv() {                               // ‘저장된 견적’ �
       .catch(e => { SRV.listBusy = false; if (ADM_OUT && !SRV.me) { renderSrv(); return } box.innerHTML = `<p class="note down">${esc(adm ? e.message : "회사에 보관된 견적을 불러오지 못했습니다. 아래는 이 기기에 있는 견적입니다.")}</p>` }) }
     return }
   if (!adm) {                                        // 실장: ‘회사 저장소’ 칸을 따로 두지 않는다 — 내 견적은 아래 ‘저장된 견적’ 한 목록에 합쳐져 있다. 목록 아래에 ‘고객에게 보낸 견적’만 둔다
-    box.innerHTML = ""; tail.innerHTML = sentHtml(); sentFilter(); if (SRV.sentOpen && !SRV.sent && !SRV.sentErr) sentLoad(); return }
+    box.innerHTML = myLinkHtml(); tail.innerHTML = sentHtml(); sentFilter(); if (SRV.sentOpen && !SRV.sent && !SRV.sentErr) sentLoad(); return }
   tail.innerHTML = "";
   const L = SRV.list, B = store.get("sido_srv_base", {}) || {}, OW = store.get("sido_srv_owner", {}) || {};
   const moved = x => B[x.id] && x.savedAt && B[x.id] !== x.savedAt && (OW[x.id] || "admin") === x.owner;   // 이 기기가 맞춘 뒤에 다른 곳(실장·다른 기기)에서 다시 저장한 견적
@@ -5689,9 +5725,10 @@ document.addEventListener("click", async ev0 => {
     if (nw) { if (!nw.dataset.armed) { nw.dataset.armed = 1; nw.textContent = "한 번 더 누르면 회사 저장소의 내용으로 바꿉니다"; setTimeout(() => { if (nw.isConnected && nw.dataset.armed) { delete nw.dataset.armed; nw.textContent = "회사 저장소에 더 새 내용 · 눌러서 불러오기" } }, 5000); return } await srvLoadNewer(srvDirty()); return }
     if (dl) { if (!dl.dataset.armed) { dl.dataset.armed = 1; dl.textContent = "한 번 더 누르면 삭제"; return } const [o, id] = dl.dataset.srvdel.split("|"); await srv("DELETE", `/api/est/${o}/${id}`); SRV.list = null; SRV.gone = null; setTimeout(keepSync, 800); if (SRV.me.role === "staff") { srvMap(PEND_K, id, null); toast("지웠습니다. 잘못 지웠으면 관리자에게 되살려 달라고 하세요.") } renderSaved(); return }
     const so = t.closest("[data-srvout]");            // 화면 위 ‘회사 저장소 연결 · 이름’: 다른 아이디로 들어가기(두 번 눌러야) · 끊겼으면 로그인 화면으로
-    if (so) { if (SRV.me && !so.dataset.armed) { so.dataset.armed = 1; so.textContent = "한 번 더 누르면 로그아웃"; setTimeout(() => { if (so.isConnected && so.dataset.armed) { delete so.dataset.armed; so.textContent = "로그아웃" } }, 4000); return }
+    if (so) { const inn = !!(SRV.me || (SRV.front && SRV.down && SRV.token !== "0"));   // 로그인돼 있는가 (꺼져 있을 때의 로그인 포함)
+      if (inn && !so.dataset.armed) { so.dataset.armed = 1; so.textContent = "한 번 더 누르면 로그아웃"; setTimeout(() => { if (so.isConnected && so.dataset.armed) { delete so.dataset.armed; so.textContent = "로그아웃" } }, 4000); return }
       if (SRV.me) { save(); try { autoStash(true) } catch (e) { } }   // 로그아웃 전에 쓰던 견적을 한 번 남긴다 (새 견적·임시저장 상태일 때)
-      if (SRV.front) { if (SRV.me) frontOut(); frontAfter.temp = false; if (SRV.down) frontLogin("down"); else frontLogin(""); return }   // (v81) 항상 열리는 주소: 이 화면 안에서 다시 로그인
+      if (SRV.front) { if (inn) frontOut(); if (SRV.down) frontLogin("down"); else frontLogin(""); return }   // (v81) 항상 열리는 주소: 이 화면 안에서 다시 로그인
       if (SRV.me) keepClear();                        // 로그아웃하면 이 기기에 받아 둔 내 견적 사본도 지운다
       location.href = SRV.me ? "/?out=1" : "/"; return }
     if (t.id === "staffAdd") { const n = $("#staffName").value.trim(), lg = $("#staffLogin") ? $("#staffLogin").value.trim() : ""; if (!n) { toast("실장 이름을 적어 주세요."); return } let r; try { r = await srv("POST", "/api/staff", lg ? { name: n, login: lg } : { name: n }) } catch (e) { toast(e.msg || e.message); return } SRV.staff = null; SRV.info = null; SRV.staffOpen = true; renderSrv(); toast(`${n} 실장을 추가했습니다. 아이디 ${r.login} · 번호 ${r.code} — ‘알려 줄 글 복사’로 본인에게만 전하세요.`); return }
@@ -5704,11 +5741,11 @@ document.addEventListener("click", async ev0 => {
       const h = location.hostname === "localhost" ? "127.0.0.1" : location.hostname === "127.0.0.1" ? "localhost" : location.hostname, url = `${location.protocol}//${h}${location.port ? ":" + location.port : ""}${r.url}${ADM_OUT ? "#view" : ""}`;   // (v69) 밖에서는 주소 이름을 달리할 수 없어 ‘#view’ 표시로 저장 공간을 따로 쓴다 (맨 위 NS)
       if (w) w.location.href = url; else location.href = url; toast(`${u.name} 실장의 화면을 새 창에 열었습니다. 그 실장이 보는 화면 그대로입니다.`); return }
     const cp = t.closest("[data-staffcopy]");         // 실장에게 알려 줄 글(주소·아이디·번호)을 한 번에 복사
-    if (cp) { const u = (SRV.staff || []).find(x => x.id === cp.dataset.staffcopy); if (!u) return; const out = SRV.info && SRV.info.outside && SRV.info.outside.url, fr = SRV.info && SRV.info.front && SRV.info.front.url, ok = await copyText(`시도디자인 견적 프로그램\n주소: ${fr || (out || (SRV.info && SRV.info.lan) || location.origin) + "/"}\n아이디: ${u.login}\n번호(비밀번호): ${u.code}\n${fr ? "크롬에서 주소를 열고 아이디와 번호를 넣으세요. 집에서도, 회사 컴퓨터가 꺼져 있어도 열립니다." : out ? "크롬에서 주소를 열고 아이디와 번호를 넣으세요. 사무실 밖에서도 됩니다." : "사무실 인터넷에 연결된 기기에서 주소를 열고 아이디와 번호를 넣으세요."} 번호는 남에게 알려 주지 마세요.`); toast(ok ? `${u.name} 실장에게 알려 줄 글을 복사했습니다. 메신저에 붙여 넣어 본인에게만 보내세요.` : "복사하지 못했습니다. 아이디와 번호 칸을 눌러 직접 복사해 주세요."); return }
+    if (cp) { const u = (SRV.staff || []).find(x => x.id === cp.dataset.staffcopy); if (!u) return; const out = SRV.info && SRV.info.outside && SRV.info.outside.url, fr = SRV.info && SRV.info.front && SRV.info.front.url, ok = await copyText(`시도디자인 견적 프로그램\n주소: ${u.link || fr || (out || (SRV.info && SRV.info.lan) || location.origin) + "/"}\n아이디: ${u.login}\n번호(비밀번호): ${u.code}\n${u.link ? "크롬에서 주소를 열고 아이디와 번호를 넣으세요. 집에서도, 회사 컴퓨터가 꺼져 있어도 됩니다. 위 주소는 내 전용 주소입니다 — 즐겨찾기에 넣어 두고, 다른 기기에서 처음 쓸 때도 꼭 이 주소로 여세요. 주소와" : fr ? "크롬에서 주소를 열고 아이디와 번호를 넣으세요. 집에서도, 회사 컴퓨터가 꺼져 있어도 열립니다." : out ? "크롬에서 주소를 열고 아이디와 번호를 넣으세요. 사무실 밖에서도 됩니다." : "사무실 인터넷에 연결된 기기에서 주소를 열고 아이디와 번호를 넣으세요."} 번호는 남에게 알려 주지 마세요.`); toast(ok ? `${u.name} 실장에게 알려 줄 글을 복사했습니다. 메신저에 붙여 넣어 본인에게만 보내세요.` : "복사하지 못했습니다. 아이디와 번호 칸을 눌러 직접 복사해 주세요."); return }
     if (t.id === "srvUpdate") { t.disabled = true; t.textContent = "받는 중…"; let r = null; try { r = await srv("POST", "/api/update", {}) } catch (e) { toast(e.msg || e.message) } SRV.info = null; SRV.updOpen = true; renderSrv(); if (r) toast(r.msg + (r.restart ? " 잠시 뒤 이 화면을 새로 고치세요." : r.got ? " 화면을 새로 고치면 새 판으로 보입니다." : "")); return }
     if (tg) { const [id, a] = tg.dataset.stafftoggle.split("|"); await srv("POST", "/api/staff", { id, active: a === "1" }); SRV.staff = null; SRV.staffOpen = true; renderSrv(); toast(a === "1" ? "다시 쓸 수 있게 했습니다." : "사용을 중지했습니다. 그 아이디로는 더 들어올 수 없습니다."); return }
     const rn = t.closest("[data-staffrenum]");
-    if (rn) { if (!rn.dataset.armed) { rn.dataset.armed = 1; rn.textContent = "한 번 더 누르면 새 번호"; return } await srv("POST", "/api/staff", { id: rn.dataset.staffrenum, renum: true }); SRV.staff = null; SRV.staffOpen = true; renderSrv(); toast("번호를 새로 만들었습니다. 전 번호는 더 쓸 수 없습니다."); return }
+    if (rn) { if (!rn.dataset.armed) { rn.dataset.armed = 1; rn.textContent = "한 번 더 누르면 새 번호"; return } await srv("POST", "/api/staff", { id: rn.dataset.staffrenum, renum: true }); SRV.staff = null; SRV.staffOpen = true; renderSrv(); toast("번호를 새로 만들었습니다. 전 번호와 전에 보낸 전용 주소는 더 쓸 수 없습니다 — ‘알려 줄 글 복사’로 새 주소·번호를 본인에게 다시 보내 주세요."); return }
     if (t.id === "learnReload") { SRV.learn = null; SRV.learnOpen = true; learnLoad(); learnDraw(); return }
     const lsv = t.closest("[data-learnsave]"), lst = t.closest("[data-learnset]"), ldl = t.closest("[data-learndel]");   // 챗봇이 배운 답 (관리자): 고친 답 저장 · 확인함 / 쓰지 않기 / 다시 쓰기 · 삭제(두 번 눌러야)
     if (lsv || lst || ldl) { const id = lsv ? lsv.dataset.learnsave : lst ? lst.dataset.learnset.split("|")[0] : ldl.dataset.learndel, cur = (SRV.learn || []).find(x => x.id === id); let body, say;
@@ -5773,7 +5810,7 @@ const AUTO_MIN = 3; let AUTO_SIG = "";
 async function autoStash(leaving) {                   // leaving = 다른 창으로 넘어가는 순간 (글자를 치던 중이어도 바로 남긴다)
   if (autoStash.busy) return;
   try {
-    if (typeof SRV === "undefined" || !SRV || !(SRV.me ? SRV.me.role === "staff" : SRV.token && SRV.down) || (leaving !== true && (document.visibilityState === "hidden" || Date.now() - TYPE_T < 5000))) return;   // 회사 컴퓨터가 꺼져 있을 때도 이 기기에 남기고 ‘올릴 것’으로 적어 둔다
+    if (typeof SRV === "undefined" || !SRV || !(SRV.me ? SRV.me.role === "staff" : SRV.token && SRV.token !== "0" && SRV.down) || (leaving !== true && (document.visibilityState === "hidden" || Date.now() - TYPE_T < 5000))) return;   // 회사 컴퓨터가 꺼져 있을 때도 이 기기에 남기고 ‘올릴 것’으로 적어 둔다
     const cur = store.get("sido3_list", []).find(x => x.id === E.id); if ((cur && !cur.draft) || (!E.draft && srvMap("sido_srv_base", E.id))) return;   // ‘저장’해 둔 견적(이 기기 목록에 있거나, 회사 저장소에서 연 것)
     if (!estHas()) return; const sig = E.id + "|" + sigH(estSig(E)); if (sig === AUTO_SIG) return;
     if (cur && estSig(cur) === estSig(E) && srvMap("sido_srv_sig", E.id) === sigH(estSig(E))) { AUTO_SIG = sig; return }   // 이미 같은 내용이 올라가 있다
@@ -6119,7 +6156,8 @@ function boot() {
   const cp = document.querySelector('.docbar [data-act="copy"]');
   if (cp && !document.querySelector('[data-act="xlsx"]')) cp.insertAdjacentHTML("beforebegin", '<button class="btn" data-act="xlsx">엑셀 견적서 저장 (.xlsx)</button>');
   refresh(true); show("check");
-  connectShared(); srvConnect();
+  connectShared(); if (SRV && SRV.front && SRV.token === "0") frontLogin("");   // (v84) 로그인하지 않은 기기는 서버의 대답을 기다리지 않고 바로 로그인 창을 덮는다
+  srvConnect();
   if (isAdmin && D.settings.adminHash === sha256("sido1234")) toast("관리자 비밀번호가 처음 값 그대로입니다. ‘마진·설정’에서 바꾼 뒤 ‘변경 저장’을 눌러 주세요.");
   else if (verChanged) toast("단가표가 새 버전으로 바뀌었습니다. 작성 중이던 견적은 그대로 두었습니다.");
 }
